@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -21,24 +22,29 @@ func testDir(baseURL string, dir string, wg *sync.WaitGroup) {
 	// Perform a GET request
 	resp, err := http.Get(target)
 	if err != nil {
-		// Ignore network errors (e.g., timeout) to avoid console spam
+		// Stampiamo esplicitamente l'errore per diagnosticare se la connessione fallisce
+		fmt.Printf("[-] Error requesting %s: %v\n", target, err)
 		return
 	}
 	// Always close the response Body to free network resources!
 	defer resp.Body.Close()
 
 	// 200 OK means the resource exists
-	if resp.StatusCode == http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
 		fmt.Printf("[+] Found (200): %s\n", target)
-	} else if resp.StatusCode == http.StatusForbidden {
+	case http.StatusForbidden:
 		fmt.Printf("[!] Access denied (403): %s\n", target)
+	default:
+		// Stampa tutte le altre risposte (come 404, 301, 502) per non ignorarle in silenzio
+		fmt.Printf("[-] Ignored (%d): %s\n", resp.StatusCode, target)
 	}
 }
 
 func main() {
 	// Configure the "-w" flag for the wordlist
 	wordlistPath := flag.String("w", "wordlist.txt", "Path to the wordlist file to use")
-	
+
 	// Parse the command line flags
 	flag.Parse()
 
@@ -75,12 +81,19 @@ func main() {
 	fmt.Printf("Using wordlist: %s\n", *wordlistPath)
 	fmt.Println("------------------------------------------------")
 
+	wordCount := 0
 	for scanner.Scan() {
-		word := scanner.Text()
+		word := strings.TrimSpace(scanner.Text())
+		wordCount++
 
 		wg.Add(1)
 		go testDir(baseURL, word, &wg)
 	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading wordlist: %v\n", err)
+	}
+	fmt.Printf("Loaded %d words from wordlist.\n", wordCount)
 
 	wg.Wait()
 
